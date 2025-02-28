@@ -1,50 +1,52 @@
-// <ms_docref_import_types>
 using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.Identity.Web;
-// </ms_docref_import_types>
 
-// <ms_docref_add_msal>
-WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
+var builder = WebApplication.CreateBuilder(args);
+
+// Configure authentication
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-                .AddMicrosoftIdentityWebApi(builder.Configuration.GetSection("AzureAd"));
+    .AddMicrosoftIdentityWebApi(options =>
+    {
+        builder.Configuration.Bind("AzureAd", options);
+        options.TokenValidationParameters.NameClaimType = "name";
+    }, options => { builder.Configuration.Bind("AzureAd", options); });
+
+// Configure authorization
 builder.Services.AddAuthorization(config =>
 {
-    config.AddPolicy("AuthZPolicy", policyBuilder =>
-        policyBuilder.Requirements.Add(new ScopeAuthorizationRequirement() { RequiredScopesConfigurationKey = $"AzureAd:Scopes" }));
+config.AddPolicy("AuthZPolicy", policy =>
+    policy.RequireRole("Forecast.Read"));
 });
-// </ms_docref_add_msal>
 
-// <ms_docref_enable_authz_capabilities>
-WebApplication app = builder.Build();
+var app = builder.Build();
+
+app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
-// </ms_docref_enable_authz_capabilities>
 
-var weatherSummaries = new[]
+var summaries = new[]
 {
     "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
 };
 
-// <ms_docref_protect_endpoint>
-app.MapGet("/weatherforecast", [Authorize(Policy = "AuthZPolicy")] () =>
+app.MapGet("/weatherforecast", () =>
 {
-    var forecast = Enumerable.Range(1, 5).Select(index =>
-       new WeatherForecast
-       (
-           DateTime.Now.AddDays(index),
-           Random.Shared.Next(-20, 55),
-           weatherSummaries[Random.Shared.Next(weatherSummaries.Length)]
-       ))
+    var forecast =  Enumerable.Range(1, 5).Select(index =>
+        new WeatherForecast
+        (
+            DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
+            Random.Shared.Next(-20, 55),
+            summaries[Random.Shared.Next(summaries.Length)]
+        ))
         .ToArray();
     return forecast;
 })
-.WithName("GetWeatherForecast");
-// </ms_docref_protect_endpoint>
+.WithName("weatherForecast")
+.RequireAuthorization("AuthZPolicy"); // Protect this endpoint with the AuthZPolicy
 
 app.Run();
 
-record WeatherForecast(DateTime Date, int TemperatureC, string? Summary)
+record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
 {
     public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
 }
